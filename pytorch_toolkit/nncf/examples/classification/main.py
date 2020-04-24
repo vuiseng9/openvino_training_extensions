@@ -176,6 +176,10 @@ def main_worker(current_gpu, config):
             compression_algo.initialize(train_loader)
         train(config, compression_algo, model, criterion, is_inception, lr_scheduler, model_name, optimizer,
               train_loader, train_sampler, val_loader, best_acc1)
+  
+    if config.mode.lower() == 'ptq':
+        compression_algo.initialize(train_loader)
+        validate(val_loader, model, criterion, config)
 
 def train(config, compression_algo, model, criterion, is_inception, lr_scheduler, model_name, optimizer,
           train_loader, train_sampler, val_loader, best_acc1=0):

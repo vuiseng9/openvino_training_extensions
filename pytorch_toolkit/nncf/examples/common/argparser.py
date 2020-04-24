@@ -26,9 +26,9 @@ def get_common_argument_parser():
     parser.add_argument(
         "--mode",
         "-m",
-        choices=['train', 'test'],
+        choices=['train', 'test', 'ptq'],
         default='train',
-        help=("train: performs training and validation; test: tests the model"
+        help=("train: performs training and validation; test: tests the model;; ptq: post-training quantization"
               "found in \"--save_dir\" with name \"--name\" on the validation split of \"--dataset\"; "))
 
     parser.add_argument('--metrics-dump', type=str, help='Name of metrics collecting .json file')

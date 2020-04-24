@@ -1,7 +1,7 @@
 {
-    "model": "mobilenet_v2",
+    "model": "vgg11",
     "input_info": {
-      "sample_size": [2, 3, 224, 224]
+      "sample_size": [1, 3, 224, 224]
     },
     "num_classes": 1000,
     "batch_size" : 64,
@@ -17,7 +17,7 @@
     "compression": {
         "algorithm": "quantization",
         "initializer": {
-            "num_init_steps": 10
+            "num_init_steps": 5
         }
     }
 }
