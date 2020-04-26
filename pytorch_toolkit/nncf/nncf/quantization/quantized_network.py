@@ -25,7 +25,7 @@ from nncf.dynamic_graph.context import OperatorInput
 from nncf.dynamic_graph.graph_builder import GraphBuilder, PostGraphBuildActing
 from nncf.dynamic_graph.utils import get_module_for_scope
 from .layers import QUANTIZATION_MODULES, BaseQuantizer
-from ..dynamic_graph import context, get_context
+from ..dynamic_graph import context, get_context, reset_context
 from ..dynamic_graph.graph import NNCFGraph, NNCFNode, InputAgnosticOperationExecutionContext, NNCFNodeExpression as N
 from ..dynamic_graph.graph import ShapeIgnoringTensorMetaComparator
 from ..dynamic_graph.patch_pytorch import ignore_scope, FUNCTIONS_TO_QUANTIZE, get_arg_positions_to_quantize
@@ -72,7 +72,7 @@ class QuantizedNetwork(nn.Module, PostGraphBuildActing):
         self._processed_function_quantizers = set()
 
         # all modules should be replaced prior to graph building
-        self._replace_quantized_modules_by_nncf_modules(device)
+        self._replace_quantized_modules_by_nncf_modules(device) ###VS Quantization Graph transformation
         self._register_weight_quantization_operations(device)
 
         if self._dummy_forward_fn is None:
@@ -81,6 +81,7 @@ class QuantizedNetwork(nn.Module, PostGraphBuildActing):
         self._graph_builder = GraphBuilder(custom_forward_fn=self._dummy_forward_fn)
 
         self._context_name = "orig"
+        reset_context(self._context_name)
         if self.scopes_without_shape_matching:
             get_context(self._context_name).add_node_comparators(scopes_without_shape_matching,
                                                                  ShapeIgnoringTensorMetaComparator())
@@ -88,6 +89,7 @@ class QuantizedNetwork(nn.Module, PostGraphBuildActing):
         self._original_graph = self._graph_builder.build_graph(self, self._context_name)
 
         self._context_name = "quantized_graphs"
+        reset_context(self._context_name)
         self._ctx = get_context("quantized_graphs")
         if self.scopes_without_shape_matching:
             get_context(self._context_name).add_node_comparators(scopes_without_shape_matching,
