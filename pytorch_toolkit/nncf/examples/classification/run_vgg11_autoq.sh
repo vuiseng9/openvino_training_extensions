@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-python main.py \
+python auto_quantize.py \
     -m autoq \
     --pretrained \
     --config configs/quantization/vgg11_imagenet_autoq.json \
