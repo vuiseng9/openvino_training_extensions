@@ -50,7 +50,7 @@ from nncf.utils import manual_seed, print_statistics
 from examples.common.utils import write_metrics
 patch_torch_operators()
 
-from autoq.env.quantization_env import QuantizationEnv
+from autoq.environment.quantization_env import QuantizationEnv
 from autoq.agent.ddpg import DDPG
 from types import SimpleNamespace
 from copy import deepcopy
@@ -189,7 +189,6 @@ def main_worker(current_gpu, config):
 
     if config.mode.lower() == 'autoq':
         env = QuantizationEnv(config)
-        env.reset()
 
         nb_states = env.layer_embedding.shape[-1]
         nb_actions = 1
