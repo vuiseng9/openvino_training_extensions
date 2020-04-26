@@ -11,7 +11,7 @@
             "type": "min_max",
             "num_init_steps": 5
         },
-        "weights":     { "mode": "symmetric", "bits": 7, "per_channel": false },
-        "activations": { "mode": "symmetric", "bits": 7, "per_channel": false }
+        "weights":     { "mode": "asymmetric", "bits": 8, "per_channel": false },
+        "activations": { "mode": "asymmetric", "bits": 8, "per_channel": false }
     }
 }
