@@ -154,6 +154,16 @@ class SymmetricQuantizer(BaseQuantizer):
     def signed(self, signed: bool):
         self.signed_tensor.fill_(signed)
 
+    def set_precision(self, bit_length):
+        self.num_bits=bit_length
+
+        self.level_high = self.level_low = 0
+        self.levels = 2 ** self.num_bits
+        if self.is_weights:
+            self.levels -= 1
+            
+        self.set_level_ranges()
+
     def quantize(self, x):
         self.set_level_ranges()
         return symmetric_quantize(x, self.levels, self.level_low, self.level_high, self.scale, self.eps)
@@ -186,6 +196,10 @@ class SymmetricQuantizer(BaseQuantizer):
             "Set sign: {} and scale: {} for {}".format(self.signed,
                                                        get_flat_tensor_contents_string(self.scale),
                                                        log_module_name))
+    
+    def extra_repr(self):
+        return 'bits={}, per_ch={}, is_wt={}'.format(
+            self.num_bits, self.per_channel, self.is_weights)
 
 @COMPRESSION_MODULES.register()
 @QUANTIZATION_MODULES.register(QuantizationMode.ASYMMETRIC)
@@ -225,6 +239,9 @@ class AsymmetricQuantizer(BaseQuantizer):
     def levels(self):
         return 2 ** self.bits
 
+    def set_precision(self, bit_length):
+        self.bits=bit_length
+    
     def quantize(self, x):
         return asymmetric_quantize(x, self.levels, self.level_low, self.level_high, self.input_low, self.input_range,
                                    self.eps)
@@ -249,3 +266,7 @@ class AsymmetricQuantizer(BaseQuantizer):
         logger.info("Set input_low: {} and input_range: {} for {}"
                     .format(get_flat_tensor_contents_string(self.input_low),
                             get_flat_tensor_contents_string(self.input_range), log_module_name))
+
+    def extra_repr(self):
+        return 'bits={}, per_ch={}, is_wt={}'.format(
+            self.bits, self.per_channel, self.is_weights)

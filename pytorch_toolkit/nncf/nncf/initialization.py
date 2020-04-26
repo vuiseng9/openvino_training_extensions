@@ -83,8 +83,10 @@ class DataLoaderInitializeRunner:
         with torch.no_grad():
             bar_format = '{l_bar}{bar} |{n_fmt}/{total_fmt} [{elapsed}<{remaining}]'
             bar_desc = 'Algorithm initialization'
-            for i, (input_, dataloader_kwargs) in tqdm(enumerate(wrapped_data_loader), total=num_init_steps,
-                                                       desc=bar_desc, bar_format=bar_format):
+            # for i, (input_, dataloader_kwargs) in tqdm(enumerate(wrapped_data_loader), total=num_init_steps,
+            #                                            desc=bar_desc, bar_format=bar_format):
+            for i, (input_, dataloader_kwargs) in enumerate(wrapped_data_loader):
+                print("Init step {}".format(i))
                 if num_init_steps is not None and i >= num_init_steps:
                     break
                 self.model(input_, **dataloader_kwargs)
