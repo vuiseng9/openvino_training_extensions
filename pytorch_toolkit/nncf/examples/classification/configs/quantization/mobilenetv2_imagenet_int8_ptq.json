@@ -1,0 +1,15 @@
+{
+    "model": "mobilenet_v2",
+    "input_info": {
+      "sample_size": [2, 3, 224, 224]
+    },
+    "num_classes": 1000,
+    "batch_size" : 64,
+    "compression": {
+        "algorithm": "quantization",
+        "initializer": {
+            "type": "min_max",
+            "num_init_steps": 10
+        }
+    }
+}

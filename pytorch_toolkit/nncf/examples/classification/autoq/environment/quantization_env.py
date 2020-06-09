@@ -34,7 +34,9 @@ from examples.common.utils import configure_logging, configure_paths, create_cod
 from nncf.config import Config
 from nncf.dynamic_graph import patch_torch_operators
 from nncf.utils import manual_seed, print_statistics
+from nncf.utils import get_all_modules, get_all_modules_by_type, get_state_dict_names_with_modules
 from examples.common.utils import write_metrics
+
 patch_torch_operators()
 
 from copy import deepcopy
@@ -104,19 +106,50 @@ class QuantizationEnv:
         self.compression_algo, self.model = create_compressed_model(self.model, config)
         self.model, _ = prepare_model_for_execution(self.model, config)
 
+        # Important to sort the order of autoq_quantizables
+        # ordered_wrapped_module_scopes = get_all_modules(self.model.get_nncf_wrapped_module()).keys()
+        # unordered_quantizable_scopes=[l[0] for l in self.model.autoq_quantizables]
+
+        # if len(set(unordered_quantizable_scopes)) != len(unordered_quantizable_scopes):
+        #     raise ValueError("There are duplicates in [unordered_quantizable_scopes], logical error")
+        
+        # overlap_scopes = set(unordered_quantizable_scopes).intersection(set(ordered_wrapped_module_scopes))
+        # if len(overlap_scopes) != len(unordered_quantizable_scopes):
+        #     raise ValueError("[unordered_quantizable_scopes] has element(s) unfound in [ordered_wrapped_module_scopes], logical error")
+
+        # ordered_quantizable_scopes=[]
+        # for scope in ordered_wrapped_module_scopes:
+        #     if scope in unordered_quantizable_scopes:
+        #         ordered_quantizable_scopes.append(scope)
+        
+        # self.model.autoq_ordered_quantizables=[]
+        # for scope in ordered_quantizable_scopes:
+        #     for quantizable_tuple in self.model.autoq_quantizables:
+        #         if quantizable_tuple[0] == scope:
+        #             self.model.autoq_ordered_quantizables.append(quantizable_tuple)
+        
+        # Important to sort the order of autoq_quantizables
+
     def apply_actions(self, strategy):
-        for i,(k, v) in enumerate(self.model.all_quantizations.items()):
-            if v.is_weights:
-                v.set_precision(strategy.pop(0))
+        for i, (mkey, m, quantizer) in enumerate(self.model.autoq_quantizables):
+            quantizer.set_precision(strategy.pop(0))
+        # for i,(k, v) in enumerate(self.model.all_quantizations.items()):
+        #     if v.is_weights:
+        #         v.set_precision(strategy.pop(0))
             
     def _get_weight_size(self):
         # get the param size for each layers to prune, size expressed in number of params
         self.wsize_list = []
-        for i, (mkey, unnormalized) in enumerate(self.state_emb.items()):
+
+        for i, (mkey, m, quantizer) in enumerate(self.model.autoq_quantizables):
+        # for i, (mkey, unnormalized) in enumerate(self.state_emb.items()):
             if i in self.quantizable_idx:
-                self.wsize_list.append(
-                    self.model.quantized_weight_modules[mkey].weight.data.numel()
+                if m.__class__.__name__ in ['NNCFConv2d','NNCFLinear']:
+                    self.wsize_list.append(
+                        self.model.quantized_weight_modules[mkey].weight.data.numel()
                     )
+                else:
+                    self.wsize_list.append(0)
         self.wsize_dict = {i: s for i, s in zip(self.quantizable_idx, self.wsize_list)}
 
     def _cur_weight(self):
@@ -132,13 +165,12 @@ class QuantizationEnv:
         return org_weight
 
     def _build_index(self):
-        # This method assume build_state_embedding has been performed
         self.quantizable_idx = []
         self.layer_type_list = []
         self.bound_list = []
-        for i, (mkey, unnormalized) in enumerate(self.state_emb.items()):
+        for i, (mkey, m, quantizer) in enumerate(self.model.autoq_quantizables):
             self.quantizable_idx.append(i)
-            self.layer_type_list.append(type(self.model.quantized_weight_modules[mkey]))
+            self.layer_type_list.append(type(m))
             self.bound_list.append((self.min_bit, self.max_bit))
         print('=> Final bound list: {}'.format(self.bound_list))
 
@@ -146,15 +178,14 @@ class QuantizationEnv:
         annotate_model_attr(self.model, (3, 224, 224), repl=False)
 
         self.state_emb.clear()
-
-        for i, (mkey, m) in enumerate(self.model.quantized_weight_modules.items()):
-            # print("\n{} ------------------\n{}".format(i, mkey))
-            # print(m.__class__.__name__)
+        debug_list=[]
+        for i, (mkey, m, quantizer) in enumerate(self.model.autoq_quantizables):
             if m.__class__.__name__ == 'NNCFConv2d':
                 state_list=[]
                 state_list.append(i) # index
-                state_list.append(4.0) # qbit
                 state_list.append([1.]) # layer type, 1 for conv_dw
+                state_list.append([0.]) # is_activation
+                state_list.append([0.]) # is_others (anything but conv2d, fc, relu)
                 state_list.append(m.in_channels) # in channels
                 state_list.append(m.out_channels) # out channels
                 state_list.append(m.stride[0]) # stride
@@ -162,11 +193,13 @@ class QuantizationEnv:
                 state_list.append(np.prod(m.weight.size())) # weight size
                 state_list.append(np.prod(m._input_shape[-2:])) # input feature_map_size
                 self.state_emb[mkey]=np.hstack(state_list)
+                debug_list.append([m.__class__.__name__] + np.hstack(state_list).tolist() + [mkey])
             elif m.__class__.__name__ == 'NNCFLinear':
                 state_list=[]
                 state_list.append(i) # index
-                state_list.append(4.0) # qbit
-                state_list.append([0.])  # layer type, 0 for fc
+                state_list.append([0.]) # layer type, 0 for fc
+                state_list.append([0.]) # is_activation
+                state_list.append([0.]) # is_others (anything but conv2d, fc, relu)
                 state_list.append([m.in_features]) # in features
                 state_list.append([m.out_features]) # out features
                 state_list.append([0.])  # stride
@@ -174,6 +207,39 @@ class QuantizationEnv:
                 state_list.append([np.prod(m.weight.size())])  # weight size
                 state_list.append(m._input_shape[-1])
                 self.state_emb[mkey]=np.hstack(state_list)
+                debug_list.append([m.__class__.__name__] + np.hstack(state_list).tolist() + [mkey])
+            elif m.__class__.__name__.lower() in ['relu', 'relu6']:
+                state_list=[]
+                state_list.append(i) # index
+                state_list.append(float(len(m._input_shape) > 2)) # 1 for conv, 0 for fc, we need to differentiate !
+                state_list.append([1.]) # is_activation
+                state_list.append([0.]) # is_others (anything but conv2d, fc, relu)
+                state_list.append([np.prod(m._input_shape[1:])]) # in features !
+                state_list.append([np.prod(m._output_shape[1:])]) # out features !
+                state_list.append([0.])  # stride
+                state_list.append([0.])  # kernel size
+                state_list.append([0.])  # weight size
+                state_list.append([np.prod(m._input_shape[1:])]) # !
+                self.state_emb[mkey]=np.hstack(state_list)
+                debug_list.append([m.__class__.__name__] + np.hstack(state_list).tolist() + [mkey])
+            else:
+                state_list=[]
+                state_list.append(i) # index
+                state_list.append(float(len(m._input_shape) > 2)) # 1 for conv, 0 for fc, we need to differentiate !
+                state_list.append([0.]) # is_activation
+                state_list.append([1.]) # is_others (anything but conv2d, fc, relu)
+                state_list.append([np.prod(m._input_shape[1:])]) # in features !
+                state_list.append([np.prod(m._output_shape[1:])]) # out features !
+                state_list.append([0.])  # stride
+                state_list.append([0.])  # kernel size
+                state_list.append([0.])  # weight size
+                state_list.append([np.prod(m._input_shape[1:])]) # !
+                self.state_emb[mkey]=np.hstack(state_list)
+                debug_list.append([m.__class__.__name__] + np.hstack(state_list).tolist() + [mkey])
+                # raise ValueError("Skipping {} -- {}".format(m.__class__.__name__,mkey)
+
+        colnames=['layer_type', 'idx', 'Conv=1,FC=0','is_act','is_other','Cin_Fin','Cout_Fout','stride','kernel','nparam','ifm_size','scope']
+        print(pd.DataFrame(debug_list, columns=colnames))
 
         emb_list = []
         for i, (mkey, v) in enumerate(self.state_emb.items()):
@@ -234,16 +300,16 @@ class QuantizationEnv:
             w_size = self._cur_weight()
             w_size_ratio = self._cur_weight() / self._org_weight()
 
-            override_cfg = {}
-            for i, layer_id in enumerate(self.state_emb.keys()):
-                override_cfg[layer_id] = {"bits": self.strategy[i]}
-            self.config.compression['scope_overrides'] = override_cfg
+            # override_cfg = {}
+            # for i, layer_id in enumerate(self.state_emb.keys()):
+            #     override_cfg[layer_id] = {"bits": self.strategy[i]}
+            # self.config.compression['scope_overrides'] = override_cfg
 
             # Quantization
             self.apply_actions(self.strategy)
 
-            for k, v in self.model.all_quantizations.items():
-                print("### Quantization action", k, v)
+            for i, (mkey, m, quantizer) in enumerate(self.model.autoq_quantizables):
+                print("#[Autoq] {} => {} | {} | {}".format(i, quantizer, m.__class__.__name__, mkey))
 
             self.compression_algo.initialize(self.train_loader)
             _, acc =self._validate(self.model)
@@ -258,8 +324,8 @@ class QuantizationEnv:
             # else:
             #     acc = self._validate(self.val_loader, self.model)
 
-            # reward = self.reward(acc, w_size_ratio)
-            reward = self.reward(acc)
+            reward = self.reward(acc, w_size_ratio)
+            # reward = self.reward(acc)
 
             info_set = {'w_ratio': w_size_ratio, 'accuracy': acc, 'w_size': w_size}
 
@@ -284,9 +350,9 @@ class QuantizationEnv:
 
     def evaluate_pretrained_accuracy(self):
         print("Evaluating pretrained accuracy")
-        # self.pretrained_top1, self.pretrained_top5 = self._validate(self.pretrained_model)
-        self.pretrained_top1 = 69.02	
-        self.pretrained_top5 = 88.63
+        self.pretrained_top1, self.pretrained_top5 = self._validate(self.pretrained_model)
+        # self.pretrained_top1 = 69.02	
+        # self.pretrained_top5 = 88.63
         self.org_acc = self.pretrained_top5
 
     def _validate(self, model):

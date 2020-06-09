@@ -35,6 +35,7 @@ from ..layers import NNCF_MODULES
 from ..operations import UpdateWeight, UpdateInputs
 from ..operator_names import VersionAgnosticNames
 from ..utils import get_all_modules_by_type, get_state_dict_names_with_modules
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,7 @@ class QuantizedNetwork(nn.Module, PostGraphBuildActing):
         self._nncf_module_scopes = []  # type: List[Scope]
         self.debug_interface = QuantizationDebugInterface() if is_debug() else None
         self.scopes_without_shape_matching = scopes_without_shape_matching
+        self.autoq_quantizables = []
 
         device = next(module.parameters()).device
 
@@ -153,6 +155,7 @@ class QuantizedNetwork(nn.Module, PostGraphBuildActing):
             self.quantize_module_creator_fn(module_name, is_weights=True)
         ).to(device)
         module.register_pre_forward_operation(op)
+        self.autoq_quantizables.append((module_name, module, op.op))
 
     def _register_input_quantization_operation(self, module_name, module, device):
         # Only use the shape of the 0-th input info specified in config. TODO: fix this
@@ -298,6 +301,10 @@ class QuantizedNetwork(nn.Module, PostGraphBuildActing):
                                                         is_weights=False,
                                                         input_shape=input_shape).to(device)
             self.activation_quantizers[operator_scope_str] = quantizer
+            
+            autoq_act_module=get_module_for_scope(self.get_nncf_wrapped_module(), ia_op_exec_context.scope_in_model)
+            self.autoq_quantizables.append((operator_scope_str, autoq_act_module, quantizer))
+            # self.autoq_quantizables.append((os.path.dirname(operator_scope_str), autoq_act_module, quantizer))
 
             if isinstance(quantizer, BaseQuantizer):
                 logger.info("Adding {} Activation Quantize in scope: {}".format(
